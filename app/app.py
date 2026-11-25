@@ -1,3 +1,4 @@
+"""HTTP-приложение для проверки CI-конвейера."""
 from flask import Flask, jsonify
 
 
