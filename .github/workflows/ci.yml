@@ -82,14 +82,15 @@ jobs:
       - name: Smoke-test container
         run: |
           set -euo pipefail
+          cleanup() {
             docker logs smoke || true
             docker rm -f smoke >/dev/null 2>&1 || true
           }
+          trap cleanup EXIT
           docker run -d --name smoke -p 127.0.0.1:5000:5000 "devops-ci-app:${GITHUB_SHA}"
           ready=0
           for attempt in {1..15}; do
             if curl --fail --silent --show-error --max-time 2 \
-              http://127.0.0.1:5000/health --output health.json; then
               ready=1
               break
             fi
@@ -98,33 +99,32 @@ jobs:
             echo "::error::health did not respond after 15 attempts"
             exit 1
           fi
-          python3 -m json.tool health.json
           python3 - <<'PY'
           import json
           from pathlib import Path
-          payload = json.loads(Path("health.json").read_text(encoding="utf-8"))
+
           assert payload == {"status": "ok"}, f"unexpected /health payload: {payload}"
           PY
-          docker exec smoke id
 
-      - name: Tag registry image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
           docker tag "devops-ci-app:${GITHUB_SHA}" "${IMAGE_NAME}:${GITHUB_SHA}"
-          docker tag "devops-ci-app:${GITHUB_SHA}" "${IMAGE_NAME}:latest"
 
       - name: Login to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
+      - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           docker push "${IMAGE_NAME}:${GITHUB_SHA}"
-          docker push "${IMAGE_NAME}:latest"      - name: Push image
-        run: |
-
+          docker push "${IMAGE_NAME}:latest"          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          docker tag "devops-ci-app:${GITHUB_SHA}" "${IMAGE_NAME}:latest"
+      - name: Tag registry image
+          docker exec smoke id
+          payload = json.loads(Path("health.json").read_text(encoding="utf-8"))
+          python3 -m json.tool health.json
             sleep 1
-          trap cleanup EXIT
 
